@@ -1,6 +1,34 @@
-# Antigravity With Telegram (Extensión de VS Code)
+# Antigravity With Telegram (Extensión de VS Code) 🚀
 
-Puente de bot de Telegram para Antigravity IDE. Le permite monitorear y controlar sus sesiones activas de IA de Antigravity desde su teléfono a través de Telegram.
+Controle, supervise e interactúe con su asistente de codificación de IA Antigravity activo directamente desde su dispositivo móvil a través de Telegram.
+
+---
+
+## 😟 El problema: ¿Atado al ordenador las 24 horas, los 7 días de la semana?
+Como desarrollador, ejecuta tareas de larga duración: esperar grandes refactorizaciones, ejecutar pruebas automatizadas, auditar compilaciones de proyectos o generar bases de código. Tener que estar pegado a su escritorio solo para aprobar comandos, responder preguntas o verificar el estado es frustrante y limita su libertad.
+
+## 😎 La solución: ¡Control remoto de IA sobre la marcha!
+Con **Antigravity With Telegram**, puede alejarse de su espacio de trabajo. Reciba notificaciones instantáneas cuando la IA necesite su intervención e interactúe con su espacio de trabajo de desarrollo directamente desde su teléfono.
+
+- **Aprobar/rechazar acciones**: obtenga avisos instantáneos para `ask_permission`, `ask_question` o `run_command` y responda con sencillos botones en línea.
+- **Monitoreo en tiempo real**: vea los resultados de compilación, análisis y pruebas en vivo en su chat.
+- **Operaciones remotas**: haga preguntas, active acciones (como checkout, git diff o ejecución de pruebas) o detenga la generación (`/stop`) desde Telegram.
+
+---
+
+## 📸 Demostración y capturas de pantalla
+
+See how easy it is to manage your IDE from Telegram:
+
+| 1. Indicaciones interactivas | 2. Auditoría de sintaxis remota | 3. Checkout de ramas y etiquetas |
+|:---:|:---:|:---:|
+| ![Interactive Prompts](images/demo_telegram_1.png) | ![Auditing Project](images/demo_telegram_2.png) | ![Branch Info](images/demo_telegram_3.png) |
+
+| 4. Espacio de trabajo y archivos | 5. Historial de confirmaciones y estado |
+|:---:|:---:|
+| ![Active Workspace](images/demo_telegram_4.png) | ![Recent Commits](images/demo_telegram_5.png) |
+
+---
 
 ## Características
 - **Espejo en vivo**: Las respuestas de la IA se reenvían directamente a su chat de Telegram.
@@ -31,7 +59,10 @@ Busque **Antigravity With Telegram** en el Marketplace de extensiones de Antigra
 
 ## Seguridad de la cuenta
 Esta extensión se comunica directamente con los servidores de Telegram utilizando la API oficial de bots de Telegram y se integra localmente con su servidor de lenguaje Antigravity (LS) y las API de extensión de VS Code. No ejecuta ningún servidor HTTP/WebSocket local ni abre ningún puerto de red, manteniendo su entorno seguro. No intervienen servidores de terceros.
-### ☕ Support this Project
-If you find this extension helpful, consider buying me a coffee:
 
-[![Donate](https://img.shields.io/badge/Donate-1%24-blue.svg)](https://paypal.me/hieuvu1414/1)
+---
+
+## ☕ Apoya este proyecto
+If you find this extension helpful, consider supporting the project to help maintain and add new features:
+
+[![Donate via PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/hieuvu1414/1)

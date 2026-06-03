@@ -1,9 +1,26 @@
 {
     "name": "antigravity-with-telegram",
-    "displayName": "Antigravity With Telegram",
-    "description": "Telegram bot bridge for Antigravity IDE",
+    "displayName": "Antigravity With Telegram - Remote AI Control",
+    "description": "Control and interact with your Antigravity AI coding assistant directly from your mobile device. Approve commands, review implementation plans, and run automated tests via Telegram, so you never have to be glued to your desk.",
+    "keywords": [
+        "antigravity",
+        "telegram",
+        "remote",
+        "ai-assistant",
+        "ai-bot",
+        "remote-access",
+        "remote-execution",
+        "productivity",
+        "workflow-automation",
+        "ai-tools",
+        "coding-assistant",
+        "automation",
+        "dev-tools",
+        "software-developer",
+        "developer-productivity"
+    ],
     "icon": "icon.png",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "mcpName": "io.github.TrungHieu1414/antigravity-with-telegram",
     "files": [
         "out/**",
@@ -18,7 +35,9 @@
         "vscode": "^1.90.0"
     },
     "categories": [
-        "Other"
+        "Productivity",
+        "Machine Learning",
+        "Chat"
     ],
     "publisher": "TrungHieu1414",
     "repository": {
