@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.7
+
+### Added
+- Added high-quality demo screenshots and rich illustrations to README.
+- Added donation support links (PayPal) to the extension documentation.
+- Integrated demo screenshots (`images/**`) directly into packaged extension files.
+
+## 1.0.6
+
+### Changed
+- Enhanced marketplace metadata (displayName, description, keywords, categories) for better discoverability.
+
 ## 1.0.5
 
 ### Fixed
