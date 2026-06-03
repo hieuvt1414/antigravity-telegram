@@ -530,6 +530,7 @@ export class TelegramIntegration {
         this.hasStartedGenerating = false;
         this.responseSent = false;
         this.waitingForInputSent = false;
+        this.lastStatusText = '';
 
         // Default safety-net timer if no snapshots are received or AI never changes state
         this.defaultTimeoutTimer = setTimeout(() => {
@@ -606,7 +607,6 @@ export class TelegramIntegration {
             // IDE báo generation xong → gửi phản hồi cuối cùng (chỉ 1 lần)
             // But NOT when there are active dialogs — AI is waiting for user input, not done
             this.hasStartedGenerating = false;
-            this.lastStatusText = ''; // Clear for next time
 
             if (this.pendingUpdate) {
                 clearTimeout(this.pendingUpdate);
@@ -633,14 +633,31 @@ export class TelegramIntegration {
         const messageId = this.activeMessageId;
         const fullText = this.lastSentText;
 
+        // 1. Complete the progress status message (strip preview)
+        if (this.lastStatusText) {
+            const completedStatusText = this.lastStatusText
+                .replace('🤖 *AI đang thực thi...*', '✅ *AI đã hoàn thành thực thi!*')
+                .replace(/\n\n💬 \*Nội dung phản hồi hiện tại:\*[\s\S]*$/, ''); // Strip preview content
+            this.bot.editMessageText(completedStatusText, {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown'
+            }).catch(() => {});
+        } else {
+            // Fallback if lastStatusText wasn't populated (e.g. timeout before first AI step)
+            this.bot.editMessageText('✅ AI đã hoàn tất thực thi các bước.', {
+                chat_id: chatId,
+                message_id: messageId
+            }).catch(() => {});
+        }
+
+        this.lastStatusText = ''; // Clear for next time
+
         if (!fullText) {
             const emptyText = this.activeUserPrompt
                 ? '✅ AI đã hoàn tất (không có nội dung text).'
                 : '_(Cuộc hội thoại trống hoặc không có nội dung text)_';
-            this.bot.editMessageText(emptyText, {
-                chat_id: chatId,
-                message_id: messageId
-            }).catch(() => { });
+            this.bot.sendMessage(chatId, emptyText).catch(() => {});
             this.scheduleClearActive();
             return;
         }
@@ -650,10 +667,9 @@ export class TelegramIntegration {
         const isApprovePrompt = this.activeUserPrompt === 'Approved. Go ahead and implement the plan.';
         if (!isApprovePrompt && this.looksLikePlanRequest(fullText)) {
             this.server.log(`[Telegram] 🔔 Phát hiện AI đang chờ phê duyệt kế hoạch`);
-            // Chỉ gửi nút bấm, không gửi toàn bộ nội dung plan
-            this.bot.editMessageText('📋 *AI đã tạo Implementation Plan và đang chờ phê duyệt.* Bạn muốn:', {
-                chat_id: chatId,
-                message_id: messageId,
+            
+            // Send buttons as a new message
+            this.bot.sendMessage(chatId, '📋 *AI đã tạo Implementation Plan và đang chờ phê duyệt.* Bạn muốn:', {
                 parse_mode: 'Markdown',
                 reply_markup: {
                     inline_keyboard: [
@@ -671,20 +687,18 @@ export class TelegramIntegration {
             return;
         }
 
-        // Không phải plan → gửi response bình thường
+        // Không phải plan → gửi response bằng tin nhắn MỚI
         const MAX_LEN = 4000; // leave margin for safety
         const chunks = this.splitMessage(fullText, MAX_LEN);
 
-        this.sendTelegramText(chatId, chunks[0], messageId)
-            .then(async () => {
-                for (let i = 1; i < chunks.length; i++) {
-                    await this.sendTelegramText(chatId, chunks[i]);
-                }
-            })
-            .catch(() => { })
-            .finally(() => {
-                this.scheduleClearActive();
-            });
+        Promise.resolve().then(async () => {
+            for (let i = 0; i < chunks.length; i++) {
+                await this.sendTelegramText(chatId, chunks[i]); // No messageId parameter means it sends new messages!
+            }
+        }).catch(() => {})
+          .finally(() => {
+              this.scheduleClearActive();
+          });
     }
 
     /**
