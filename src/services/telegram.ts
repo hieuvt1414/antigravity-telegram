@@ -30,6 +30,8 @@ export class TelegramIntegration {
     private autoCheckInterval: NodeJS.Timeout | null = null;
     private lockInterval: NodeJS.Timeout | null = null;
     private lastStatusText: string = '';
+    private stepMessageIds: Map<number, number> = new Map();
+    private stepLastStatuses: Map<number, string> = new Map();
 
     /** True when we're actively waiting for an AI response to forward to Telegram */
     public get isTrackingResponse(): boolean {
@@ -531,6 +533,8 @@ export class TelegramIntegration {
         this.responseSent = false;
         this.waitingForInputSent = false;
         this.lastStatusText = '';
+        this.stepMessageIds.clear();
+        this.stepLastStatuses.clear();
 
         // Default safety-net timer if no snapshots are received or AI never changes state
         this.defaultTimeoutTimer = setTimeout(() => {
@@ -543,19 +547,39 @@ export class TelegramIntegration {
         }, 5000);
     }
 
-    public handleLSTrajectory(text: string, isGenerating: boolean, hasActiveDialogs: boolean = false, stepStatusText: string = '') {
+    public handleLSTrajectory(text: string, isGenerating: boolean, hasActiveDialogs: boolean = false, stepStatusText: string = '', steps: any[] = []) {
         this.checkAndAutoSendBrainFiles().catch(() => {});
 
         if (!this.activeMessageId || !this.activeChatId) return;
 
-        // Edit status message with real-time steps progress and response preview
-        if (isGenerating && stepStatusText && stepStatusText !== this.lastStatusText) {
-            this.lastStatusText = stepStatusText;
-            this.bot.editMessageText(stepStatusText, {
-                chat_id: this.activeChatId,
+        const chatId = this.activeChatId;
+
+        let friendlyDescription = 'Initializing';
+        if (steps && steps.length > 0) {
+            const activeStepIndex = steps.length - 1;
+            const step = steps[activeStepIndex];
+
+            let toolName: string | undefined;
+            if (step.plannerResponse?.toolCalls?.length > 0) {
+                toolName = step.plannerResponse.toolCalls[0].name;
+            }
+
+            friendlyDescription = this.mapStepTypeToEnglish(step.type, toolName);
+        }
+
+        const newStatusText = `🤖 AI : ${friendlyDescription}`;
+
+        // Edit status message with real-time progress of AI execution
+        if (isGenerating && newStatusText !== this.lastStatusText) {
+            this.lastStatusText = newStatusText;
+            this.server.log(`[Telegram] Updating progress message ${this.activeMessageId}: "${newStatusText.substring(0, 120).replace(/\n/g, ' ')}..."`);
+            this.bot.editMessageText(newStatusText, {
+                chat_id: chatId,
                 message_id: this.activeMessageId,
                 parse_mode: 'Markdown'
-            }).catch(() => {});
+            }).catch((err: any) => {
+                this.server.log(`[Telegram] Error updating progress message: ${err?.message || err}`);
+            });
         }
 
         if (text) {
@@ -633,23 +657,18 @@ export class TelegramIntegration {
         const messageId = this.activeMessageId;
         const fullText = this.lastSentText;
 
-        // 1. Complete the progress status message (strip preview)
-        if (this.lastStatusText) {
-            const completedStatusText = this.lastStatusText
-                .replace('🤖 *AI đang thực thi...*', '✅ *AI đã hoàn thành thực thi!*')
-                .replace(/\n\n💬 \*Nội dung phản hồi hiện tại:\*[\s\S]*$/, ''); // Strip preview content
-            this.bot.editMessageText(completedStatusText, {
-                chat_id: chatId,
-                message_id: messageId,
-                parse_mode: 'Markdown'
-            }).catch(() => {});
-        } else {
-            // Fallback if lastStatusText wasn't populated (e.g. timeout before first AI step)
-            this.bot.editMessageText('✅ AI đã hoàn tất thực thi các bước.', {
+        // 1. Complete the progress status message
+        this.server.log(`[Telegram] Marking progress message ${messageId} as completed`);
+        this.bot.editMessageText('✅ AI : Finished', {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown'
+        }).catch(() => {
+            this.bot.editMessageText('✅ AI : Finished', {
                 chat_id: chatId,
                 message_id: messageId
             }).catch(() => {});
-        }
+        });
 
         this.lastStatusText = ''; // Clear for next time
 
@@ -665,29 +684,8 @@ export class TelegramIntegration {
         // Auto-detect: AI đang chờ phê duyệt kế hoạch?
         // Chỉ nhận diện plan nếu prompt không phải là phê duyệt plan
         const isApprovePrompt = this.activeUserPrompt === 'Approved. Go ahead and implement the plan.';
-        if (!isApprovePrompt && this.looksLikePlanRequest(fullText)) {
-            this.server.log(`[Telegram] 🔔 Phát hiện AI đang chờ phê duyệt kế hoạch`);
-            
-            // Send buttons as a new message
-            this.bot.sendMessage(chatId, '📋 *AI đã tạo Implementation Plan và đang chờ phê duyệt.* Bạn muốn:', {
-                parse_mode: 'Markdown',
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            { text: '✅ Approve', callback_data: 'approve_plan' },
-                            { text: '📄 Xem Plan', callback_data: 'view_plan' }
-                        ],
-                        [
-                            { text: '✏️ Sửa / Reject', callback_data: 'reject_plan' }
-                        ]
-                    ]
-                }
-            }).catch(() => { });
-            this.scheduleClearActive();
-            return;
-        }
+        const isPlanRequest = !isApprovePrompt && this.looksLikePlanRequest(fullText);
 
-        // Không phải plan → gửi response bằng tin nhắn MỚI
         const MAX_LEN = 4000; // leave margin for safety
         const chunks = this.splitMessage(fullText, MAX_LEN);
 
@@ -695,10 +693,31 @@ export class TelegramIntegration {
             for (let i = 0; i < chunks.length; i++) {
                 await this.sendTelegramText(chatId, chunks[i]); // No messageId parameter means it sends new messages!
             }
-        }).catch(() => {})
-          .finally(() => {
-              this.scheduleClearActive();
-          });
+
+            if (isPlanRequest) {
+                this.server.log(`[Telegram] 🔔 Phát hiện AI đang chờ phê duyệt kế hoạch`);
+                
+                // Send buttons as a new message
+                await this.bot.sendMessage(chatId, '📋 *AI đã tạo Implementation Plan và đang chờ phê duyệt.* Bạn muốn:', {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: '✅ Approve', callback_data: 'approve_plan' },
+                                { text: '📄 Xem Plan', callback_data: 'view_plan' }
+                            ],
+                            [
+                                { text: '✏️ Sửa / Reject', callback_data: 'reject_plan' }
+                            ]
+                        ]
+                    }
+                });
+            }
+        }).catch((err: any) => {
+            this.server.log(`[Telegram] Error sending final response: ${err?.message || err}`);
+        }).finally(() => {
+            this.scheduleClearActive();
+        });
     }
 
     /**
@@ -706,18 +725,25 @@ export class TelegramIntegration {
      * Tự động fallback sang plain text nếu Markdown bị lỗi.
      */
     private async sendTelegramText(chatId: number, text: string, editMessageId?: number): Promise<void> {
-        const safeText = text.replace(/[*_`\[\]()]/g, '');
+        const cleanedText = this.cleanMarkdownForTelegram(text);
+        const safeText = cleanedText.replace(/[*_`\[\]()]/g, '');
+        if (editMessageId) {
+            this.server.log(`[Telegram] Editing message ${editMessageId} to:\n${cleanedText}\n---`);
+        } else {
+            this.server.log(`[Telegram] Sending new message:\n${cleanedText}\n---`);
+        }
         try {
             if (editMessageId) {
-                await this.bot.editMessageText(text, {
+                await this.bot.editMessageText(cleanedText, {
                     chat_id: chatId,
                     message_id: editMessageId,
                     parse_mode: 'Markdown'
                 });
             } else {
-                await this.bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+                await this.bot.sendMessage(chatId, cleanedText, { parse_mode: 'Markdown' });
             }
-        } catch {
+        } catch (err: any) {
+            this.server.log(`[Telegram] Markdown send/edit failed (${err?.message || err}), retrying with plain text...`);
             try {
                 if (editMessageId) {
                     await this.bot.editMessageText(safeText, {
@@ -727,7 +753,9 @@ export class TelegramIntegration {
                 } else {
                     await this.bot.sendMessage(chatId, safeText);
                 }
-            } catch { /* swallow */ }
+            } catch (fallbackErr: any) {
+                this.server.log(`[Telegram] Plain text fallback failed: ${fallbackErr?.message || fallbackErr}`);
+            }
         }
     }
 
@@ -894,24 +922,26 @@ export class TelegramIntegration {
 
         try {
             const content = fs.readFileSync(filePath, 'utf-8');
+            const cleanedContent = this.cleanMarkdownForTelegram(content);
             if (content.length > 3500) {
                 // File dài → gửi dưới dạng file kèm preview
                 const preview = content.substring(0, 1500) + '\n\n... _(file quá dài, xem file đính kèm)_';
-                await this.bot.sendMessage(chatId, `📋 *Implementation Plan (preview):*\n\n${preview}`, {
+                const cleanedPreview = this.cleanMarkdownForTelegram(preview);
+                await this.bot.sendMessage(chatId, `📋 *Implementation Plan (preview):*\n\n${cleanedPreview}`, {
                     parse_mode: 'Markdown'
                 }).catch(async () => {
                     // Markdown failed, send plain
-                    await this.bot.sendMessage(chatId, `📋 Implementation Plan (preview):\n\n${preview}`);
+                    await this.bot.sendMessage(chatId, `📋 Implementation Plan (preview):\n\n${cleanedPreview}`);
                 });
                 await this.bot.sendDocument(chatId, filePath, {
                     caption: '📄 File kế hoạch đầy đủ'
                 });
             } else {
                 // File ngắn → gửi trực tiếp dưới dạng text
-                await this.bot.sendMessage(chatId, `📋 *Implementation Plan:*\n\n${content}`, {
+                await this.bot.sendMessage(chatId, `📋 *Implementation Plan:*\n\n${cleanedContent}`, {
                     parse_mode: 'Markdown'
                 }).catch(async () => {
-                    await this.bot.sendMessage(chatId, `📋 Implementation Plan:\n\n${content}`);
+                    await this.bot.sendMessage(chatId, `📋 Implementation Plan:\n\n${cleanedContent}`);
                 });
             }
 
@@ -1078,8 +1108,9 @@ export class TelegramIntegration {
     public sendReplyToUser(text: string) {
         const targetId = this.allowedChatId;
         if (targetId) {
-            this.bot.sendMessage(targetId, text, { parse_mode: 'Markdown' }).catch(e => {
-                this.bot.sendMessage(targetId, text).catch(err => this.server.log(`[Telegram] Error sending reply: ${err}`));
+            const cleanedText = this.cleanMarkdownForTelegram(text);
+            this.bot.sendMessage(targetId, cleanedText, { parse_mode: 'Markdown' }).catch(e => {
+                this.bot.sendMessage(targetId, cleanedText).catch(err => this.server.log(`[Telegram] Error sending reply: ${err}`));
             });
         }
     }
@@ -1138,21 +1169,23 @@ export class TelegramIntegration {
 
         try {
             const content = fs.readFileSync(filePath, 'utf-8');
+            const cleanedContent = this.cleanMarkdownForTelegram(content);
             if (content.length > 3500) {
                 const preview = content.substring(0, 1500) + '\n\n... _(file quá dài, xem file đính kèm)_';
-                await this.bot.sendMessage(chatId, `🎉 *Walkthrough (preview):*\n\n${preview}`, {
+                const cleanedPreview = this.cleanMarkdownForTelegram(preview);
+                await this.bot.sendMessage(chatId, `🎉 *Walkthrough (preview):*\n\n${cleanedPreview}`, {
                     parse_mode: 'Markdown'
                 }).catch(async () => {
-                    await this.bot.sendMessage(chatId, `🎉 Walkthrough (preview):\n\n${preview}`);
+                    await this.bot.sendMessage(chatId, `🎉 Walkthrough (preview):\n\n${cleanedPreview}`);
                 });
                 await this.bot.sendDocument(chatId, filePath, {
                     caption: '📄 File walkthrough chi tiết'
                 });
             } else {
-                await this.bot.sendMessage(chatId, `🎉 *Walkthrough:*\n\n${content}`, {
+                await this.bot.sendMessage(chatId, `🎉 *Walkthrough:*\n\n${cleanedContent}`, {
                     parse_mode: 'Markdown'
                 }).catch(async () => {
-                    await this.bot.sendMessage(chatId, `🎉 Walkthrough:\n\n${content}`);
+                    await this.bot.sendMessage(chatId, `🎉 Walkthrough:\n\n${cleanedContent}`);
                 });
             }
 
@@ -1204,6 +1237,19 @@ export class TelegramIntegration {
                 this.lastPlanHash = currentPlanHash;
                 this.server.log(`[Telegram] 🔔 Tự động gửi Implementation Plan mới cập nhật (content hash changed)`);
                 await this.sendPlanToUser(chatId);
+            }
+        }
+
+        const wtFile = this.getLatestFile([
+            'walkthrough.md',
+            'walkthrough.md.resolved'
+        ]);
+        if (wtFile) {
+            const currentWtHash = this.getFileHash(wtFile.filePath);
+            if (currentWtHash && currentWtHash !== this.lastWalkthroughHash) {
+                this.lastWalkthroughHash = currentWtHash;
+                this.server.log(`[Telegram] 🔔 Tự động gửi Walkthrough mới cập nhật (content hash changed)`);
+                await this.sendWalkthroughToUser(chatId);
             }
         }
     }
@@ -1303,6 +1349,70 @@ export class TelegramIntegration {
         } catch (e) {
             this.server.log(`[Telegram] Error stopping polling: ${e}`);
         }
+    }
+
+    private mapStepTypeToEnglish(type: string, toolName?: string): string {
+        const rawType = (type || 'UNKNOWN')
+            .replace('CORTEX_STEP_TYPE_', '')
+            .replace('CORTEX_STEP_STATUS_', '')
+            .toUpperCase();
+
+        if (toolName) {
+            switch (toolName) {
+                case 'view_file': return 'Reading file';
+                case 'run_command': return 'Executing terminal command';
+                case 'write_to_file': return 'Creating new file';
+                case 'replace_file_content': return 'Updating file content';
+                case 'multi_replace_file_content': return 'Editing file';
+                case 'grep_search': return 'Searching codebase';
+                case 'list_dir': return 'Listing directory contents';
+                case 'ask_question': return 'Waiting for user choice';
+                case 'ask_permission': return 'Waiting for user permission';
+                default: return `Running tool (${toolName})`;
+            }
+        }
+
+        switch (rawType) {
+            case 'CONVERSATIONHISTORY':
+            case 'CONVERSATION_HISTORY':
+                return 'Loading conversation history';
+            case 'KNOWLEDGEARTIFACTS':
+            case 'KNOWLEDGE_ARTIFACTS':
+                return 'Analyzing project knowledge';
+            case 'PLANNERRESPONSE':
+            case 'PLANNER_RESPONSE':
+                return 'Planning next steps';
+            case 'VIEWFILE':
+            case 'VIEW_FILE':
+                return 'Reading file';
+            case 'CHECKPOINT':
+                return 'Saving checkpoint';
+            case 'RUN_COMMAND':
+                return 'Running command';
+            case 'WRITE_TO_FILE':
+                return 'Writing file';
+            case 'REPLACE_FILE_CONTENT':
+                return 'Replacing file content';
+            case 'ASK_QUESTION':
+                return 'Asking a question';
+            case 'ASK_PERMISSION':
+                return 'Requesting permission';
+            case 'ASSISTANT_RESPONSE':
+                return 'Formulating response';
+            case 'CHAT_RESPONSE':
+                return 'Generating reply';
+            case 'USER_INPUT':
+                return 'Analyzing user prompt';
+            default:
+                return rawType
+                    .split('_')
+                    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                    .join(' ');
+        }
+    }
+
+    private cleanMarkdownForTelegram(text: string): string {
+        return text.replace(/\[([^\]]+)\]\((file:\/\/[^)]+)\)/g, '$1 ($2)');
     }
 
     private acquireLock() {

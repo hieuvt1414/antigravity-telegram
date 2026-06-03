@@ -121,6 +121,7 @@ export class AntigravityCore {
         let lsText = '';
         let hasActiveDialogs = false;
         let stepStatusText = '';
+        let steps: any[] = [];
 
         const isTracking = this.telegramIntegration?.isTrackingResponse ?? false;
 
@@ -141,7 +142,7 @@ export class AntigravityCore {
 
                     const trajectoryData = await getCascadeTrajectory(activeCascadeId);
                     if (trajectoryData && trajectoryData.trajectory) {
-                        const steps = trajectoryData.trajectory.steps || [];
+                        steps = trajectoryData.trajectory.steps || [];
 
                         // Log new or updated steps for troubleshooting
                         for (let i = 0; i < steps.length; i++) {
@@ -274,45 +275,132 @@ export class AntigravityCore {
                         // ── Formulate stepStatusText for Telegram real-time progress updates ──
                         const maxDisplaySteps = 5;
                         const lastSteps = steps.slice(-maxDisplaySteps);
-                        const progressLines = lastSteps.map((s: any) => {
-                            const actualIndex = steps.indexOf(s);
-                            const cleanType = (s.type || 'UNKNOWN')
+
+                        const formatStepType = (type: string, toolName?: string, toolArgs?: any): string => {
+                            const rawType = (type || 'UNKNOWN')
                                 .replace('CORTEX_STEP_TYPE_', '')
-                                .replace('CORTEX_STEP_STATUS_', '');
-                            const cleanStatus = (s.status || 'UNKNOWN')
-                                .replace('CORTEX_STEP_STATUS_', '');
+                                .replace('CORTEX_STEP_STATUS_', '')
+                                .toUpperCase();
 
-                            const emoji = cleanStatus.includes('RUNNING') ? '⏳' : '✅';
-
-                            let detail = '';
-                            if (s.plannerResponse?.toolCalls?.length > 0) {
-                                const tc = s.plannerResponse.toolCalls[0];
-                                detail = ` (Tool: ${tc.name})`;
+                            if (toolName) {
                                 try {
-                                    const args = JSON.parse(tc.argumentsJson);
-                                    if (tc.name === 'view_file' && args.AbsolutePath) {
-                                        detail = ` (View: \`${path.basename(args.AbsolutePath)}\`)`;
-                                    } else if (tc.name === 'run_command' && args.CommandLine) {
-                                        detail = ` (Run: \`${args.CommandLine.split(' ')[0]}...\`)`;
-                                    } else if (tc.name === 'write_to_file' && args.TargetFile) {
-                                        detail = ` (Create: \`${path.basename(args.TargetFile)}\`)`;
-                                    } else if (tc.name === 'replace_file_content' && args.TargetFile) {
-                                        detail = ` (Modify: \`${path.basename(args.TargetFile)}\`)`;
-                                    } else if (tc.name === 'ask_question') {
-                                        detail = ` (Ask Question)`;
-                                    } else if (tc.name === 'ask_permission') {
-                                        detail = ` (Ask Permission)`;
+                                    if (toolName === 'view_file' && toolArgs?.AbsolutePath) {
+                                        return `Đọc file \`${path.basename(toolArgs.AbsolutePath)}\``;
+                                    }
+                                    if (toolName === 'run_command' && toolArgs?.CommandLine) {
+                                        return `Chạy lệnh \`${toolArgs.CommandLine.split(' ')[0]}...\``;
+                                    }
+                                    if (toolName === 'write_to_file' && toolArgs?.TargetFile) {
+                                        return `Tạo file \`${path.basename(toolArgs.TargetFile)}\``;
+                                    }
+                                    if (toolName === 'replace_file_content' && toolArgs?.TargetFile) {
+                                        return `Sửa file \`${path.basename(toolArgs.TargetFile)}\``;
+                                    }
+                                    if (toolName === 'multi_replace_file_content' && toolArgs?.TargetFile) {
+                                        return `Sửa file \`${path.basename(toolArgs.TargetFile)}\``;
+                                    }
+                                    if (toolName === 'grep_search') {
+                                        return `Tìm kiếm trong mã nguồn`;
+                                    }
+                                    if (toolName === 'list_dir' && toolArgs?.DirectoryPath) {
+                                        return `Liệt kê thư mục \`${path.basename(toolArgs.DirectoryPath) || '/'}\``;
+                                    }
+                                    if (toolName === 'ask_question') {
+                                        return 'Hỏi ý kiến người dùng';
+                                    }
+                                    if (toolName === 'ask_permission') {
+                                        return 'Yêu cầu cấp quyền';
                                     }
                                 } catch {}
                             }
 
-                            // Using safe formatting (no square brackets) to avoid Telegram Markdown parsing errors
-                            return `${emoji} Step ${actualIndex}: ${cleanType} (${cleanStatus})${detail}`;
+                            switch (rawType) {
+                                case 'CONVERSATIONHISTORY':
+                                case 'CONVERSATION_HISTORY':
+                                    return 'Đọc lịch sử hội thoại';
+                                case 'KNOWLEDGEARTIFACTS':
+                                case 'KNOWLEDGE_ARTIFACTS':
+                                    return 'Đọc tri thức dự án';
+                                case 'PLANNERRESPONSE':
+                                case 'PLANNER_RESPONSE':
+                                    return 'Lên kế hoạch thực thi';
+                                case 'VIEWFILE':
+                                case 'VIEW_FILE':
+                                    return 'Đọc nội dung file';
+                                case 'CHECKPOINT':
+                                    return 'Lưu checkpoint trạng thái';
+                                case 'RUN_COMMAND':
+                                    return 'Chạy lệnh terminal';
+                                case 'WRITE_TO_FILE':
+                                    return 'Tạo file mới';
+                                case 'REPLACE_FILE_CONTENT':
+                                    return 'Cập nhật nội dung file';
+                                case 'ASK_QUESTION':
+                                    return 'Hỏi ý kiến người dùng';
+                                case 'ASK_PERMISSION':
+                                    return 'Yêu cầu cấp quyền';
+                                case 'ASSISTANT_RESPONSE':
+                                    return 'Assistant trả lời';
+                                case 'CHAT_RESPONSE':
+                                    return 'Nhận phản hồi từ Chat';
+                                case 'USER_INPUT':
+                                    return 'Nhận yêu cầu từ người dùng';
+                                default:
+                                    // Title case
+                                    return rawType
+                                        .split('_')
+                                        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                                        .join(' ');
+                            }
+                        };
+
+                        const progressLines = lastSteps.map((s: any) => {
+                            const actualIndex = steps.indexOf(s);
+                            const rawType = s.type || 'UNKNOWN';
+                            const rawStatus = (s.status || 'UNKNOWN').replace('CORTEX_STEP_STATUS_', '');
+
+                            let toolName: string | undefined;
+                            let toolArgs: any;
+                            let detail = '';
+
+                            if (s.plannerResponse?.toolCalls?.length > 0) {
+                                const tc = s.plannerResponse.toolCalls[0];
+                                toolName = tc.name;
+                                try {
+                                    toolArgs = JSON.parse(tc.argumentsJson);
+                                } catch {}
+                                
+                                const knownTools = ['view_file', 'run_command', 'write_to_file', 'replace_file_content', 'multi_replace_file_content', 'grep_search', 'list_dir', 'ask_question', 'ask_permission'];
+                                if (tc.name && !knownTools.includes(tc.name)) {
+                                    detail = ` (Tool: ${tc.name})`;
+                                }
+                            }
+
+                            const friendlyType = formatStepType(rawType, toolName, toolArgs);
+
+                            const isRunning = rawStatus.includes('RUNNING');
+                            const isFailed = rawStatus.includes('FAILED') || rawStatus.includes('ERROR');
+                            const isCancelled = rawStatus.includes('CANCELLED') || rawStatus.includes('ABORTED');
+
+                            let emoji = '✅';
+                            let statusText = '';
+                            if (isRunning) {
+                                emoji = '⏳';
+                                statusText = ' (Đang chạy...)';
+                            } else if (isFailed) {
+                                emoji = '❌';
+                                statusText = ' (Lỗi)';
+                            } else if (isCancelled) {
+                                emoji = '🚫';
+                                statusText = ' (Đã hủy)';
+                            }
+
+                            return `${emoji} Bước ${actualIndex + 1}: ${friendlyType}${statusText}${detail}`;
                         });
 
                         stepStatusText = `🤖 *AI đang thực thi...*\n\n`;
                         if (steps.length > maxDisplaySteps) {
-                            stepStatusText += `_... (đã ẩn ${steps.length - maxDisplaySteps} steps trước)_\n`;
+                            stepStatusText += `_... (đã ẩn ${steps.length - maxDisplaySteps} bước trước)_\n`;
                         }
                         stepStatusText += progressLines.join('\n');
 
@@ -338,7 +426,7 @@ export class AntigravityCore {
         }
 
         if (this.telegramIntegration && isTracking) {
-            this.telegramIntegration.handleLSTrajectory(lsText, lsGenerating, hasActiveDialogs, stepStatusText);
+            this.telegramIntegration.handleLSTrajectory(lsText, lsGenerating, hasActiveDialogs, stepStatusText, steps);
         }
 
         return false;

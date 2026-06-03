@@ -265,6 +265,34 @@ describe('TelegramIntegration', () => {
         });
     });
 
+    // ── cleanMarkdownForTelegram ──────────────────────────────────────────────
+
+    describe('cleanMarkdownForTelegram', () => {
+        let tg: TelegramIntegration;
+
+        beforeEach(() => {
+            const { tg: testTg } = createTestInstance();
+            tg = testTg;
+        });
+
+        it('replaces file:/// markdown links with plain text and url description', () => {
+            const input = 'Please check [telegram.ts](file:///Users/trunghieu/Downloads/telegram.ts) for details.';
+            const expected = 'Please check telegram.ts (file:///Users/trunghieu/Downloads/telegram.ts) for details.';
+            assert.strictEqual((tg as any).cleanMarkdownForTelegram(input), expected);
+        });
+
+        it('replaces file:// markdown links (two slashes) correctly', () => {
+            const input = 'Check [settings.json](file://C:/path/to/settings.json) here.';
+            const expected = 'Check settings.json (file://C:/path/to/settings.json) here.';
+            assert.strictEqual((tg as any).cleanMarkdownForTelegram(input), expected);
+        });
+
+        it('ignores http/https/other links', () => {
+            const input = 'Visit [Google](https://google.com) or [Telegram](https://telegram.org).';
+            assert.strictEqual((tg as any).cleanMarkdownForTelegram(input), input);
+        });
+    });
+
     // ── Integration: handleLSTrajectory ─────────────────────────────────────
 
     describe('handleLSTrajectory: send once when done', () => {
@@ -285,8 +313,9 @@ describe('TelegramIntegration', () => {
             tg.handleLSTrajectory('Part 2', true);
             tg.handleLSTrajectory('Part 3', true);
 
-            assert.strictEqual(bot.edits.length, 0, 'Should NOT edit during generation');
-            assert.strictEqual(bot.messages.length, 0, 'Should NOT send during generation');
+            // We do edit the status message with progress, but should NOT send NEW messages
+            assert.ok(bot.edits.length > 0, 'Should update status message with progress');
+            assert.strictEqual(bot.messages.length, 0, 'Should NOT send new messages during generation');
         });
 
         it('tracks hasStartedGenerating when isGenerating=true', () => {
@@ -305,11 +334,29 @@ describe('TelegramIntegration', () => {
             bot.clearHistory();
 
             tg.handleLSTrajectory('generating...', true);
-            assert.strictEqual(bot.edits.length, 0);
+            assert.ok(bot.edits.length > 0, 'Should update status message with progress');
 
             tg.handleLSTrajectory('final answer', false);
             assert.ok(core.logs.some(l => l.includes('AI hoàn tất')),
                 'Should log completion message');
+        });
+
+        it('sends response text and plan buttons when looksLikePlanRequest is true', (done) => {
+            (tg as any).activeMessageId = 1;
+            (tg as any).activeChatId = 12345;
+            (tg as any).activeUserPrompt = 'summarize conversation';
+            bot.clearHistory();
+
+            tg.handleLSTrajectory('generating...', true);
+            tg.handleLSTrajectory('Here is the implementation plan. Please review and approve.', false);
+
+            setTimeout(() => {
+                const sentMessages = bot.messages;
+                assert.strictEqual(sentMessages.length, 2, 'Should send exactly 2 messages (text response + plan buttons)');
+                assert.ok(sentMessages[0].text.includes('Here is the implementation plan'), 'First message should be response text');
+                assert.ok(sentMessages[1].text.includes('Implementation Plan và đang chờ phê duyệt'), 'Second message should contain plan buttons');
+                done();
+            }, 100);
         });
 
         it('updates lastSentText in memory without sending', () => {
@@ -324,7 +371,7 @@ describe('TelegramIntegration', () => {
             const t2 = (tg as any).lastSentText;
 
             assert.notStrictEqual(t1, t2, 'lastSentText should update in memory');
-            assert.strictEqual(bot.edits.length, 0, 'Still no edits sent');
+            assert.ok(bot.edits.length > 0, 'Should edit progress message');
         });
 
         it('does nothing if isGenerating flips false without prior true', () => {
@@ -721,7 +768,7 @@ describe('TelegramIntegration', () => {
             fs.readFileSync = origReadFileSync;
         });
 
-        it('does NOT auto-send walkthrough when content hash changes', async () => {
+        it('auto-sends walkthrough when content hash changes', async () => {
             let mockHash = 'hash1';
             (tg as any).getLatestFile = (filenames: string[]) => {
                 if (filenames.includes('walkthrough.md')) {
@@ -749,8 +796,8 @@ describe('TelegramIntegration', () => {
 
             await new Promise(resolve => setTimeout(resolve, 100));
 
-            assert.ok(!bot.messages.some(m => m.text.includes('Walkthrough') || m.text.includes('Mock Walkthrough Content')));
-            assert.strictEqual((tg as any).lastWalkthroughHash, 'hash0');
+            assert.ok(bot.messages.some(m => m.text.includes('Walkthrough') && m.text.includes('Mock Walkthrough Content')));
+            assert.strictEqual((tg as any).lastWalkthroughHash, 'hash1');
 
             fs.readFileSync = origReadFileSync;
         });

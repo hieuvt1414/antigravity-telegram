@@ -3,7 +3,7 @@
     "displayName": "Antigravity With Telegram",
     "description": "Telegram bot bridge for Antigravity IDE",
     "icon": "icon.png",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "mcpName": "io.github.TrungHieu1414/antigravity-with-telegram",
     "files": [
         "out/**",
@@ -23,7 +23,7 @@
     "publisher": "TrungHieu1414",
     "repository": {
         "type": "git",
-        "url": "https://github.com/hieuvt1414/antigravity-with-telegram"
+        "url": "https://github.com/hieuvt1414/antigravity-telegram"
     },
     "activationEvents": [
         "onStartupFinished",

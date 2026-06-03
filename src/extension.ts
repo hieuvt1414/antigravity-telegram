@@ -91,6 +91,7 @@ async function startBot(context: vscode.ExtensionContext) {
     // Check lock file to avoid 409 Conflict
     const path = require('path');
     const fs = require('fs');
+    const execSync = require('child_process').execSync;
     const lockPath = path.join(require('os').homedir(), '.ag-link', 'bot.lock');
     if (fs.existsSync(lockPath)) {
         try {
@@ -107,9 +108,28 @@ async function startBot(context: vscode.ExtensionContext) {
                 }
             };
 
-            if (Date.now() - time < 15_000 && isPidRunning(pid) && pid !== process.pid) {
+            // Check if the locking process is actually an IDE extension (not a test runner)
+            let isRealExtension = false;
+            if (isPidRunning(pid) && pid !== process.pid) {
+                try {
+                    const cmd = execSync(`ps -p ${pid} -o command=`, { encoding: 'utf8' }).trim();
+                    // Test runners (mocha, jest) are NOT real extension hosts
+                    isRealExtension = !cmd.includes('mocha') && !cmd.includes('jest') && !cmd.includes('ts-node');
+                } catch {
+                    // Can't determine — assume stale
+                    isRealExtension = false;
+                }
+            }
+
+            if (Date.now() - time < 15_000 && isPidRunning(pid) && pid !== process.pid && isRealExtension) {
                 vscode.window.showWarningMessage(`Telegram Bot đang chạy ở cửa sổ IDE khác (PID: ${pid}). Vui lòng tắt bot ở cửa sổ kia trước.`);
                 return;
+            }
+
+            // Stale or non-extension lock — clean it up automatically
+            if (!isRealExtension || !isPidRunning(pid)) {
+                try { fs.unlinkSync(lockPath); } catch {}
+                outputChannel.appendLine(`[Lock] Cleaned up stale lock from PID ${pid}`);
             }
         } catch {}
     }
