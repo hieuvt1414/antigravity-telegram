@@ -28,6 +28,8 @@ export class TelegramIntegration {
     private lastActiveSessionDir: string = '';
     private lastAutoCheckTime: number = 0;
     private autoCheckInterval: NodeJS.Timeout | null = null;
+    private lockInterval: NodeJS.Timeout | null = null;
+    private lastStatusText: string = '';
 
     /** True when we're actively waiting for an AI response to forward to Telegram */
     public get isTrackingResponse(): boolean {
@@ -59,6 +61,10 @@ export class TelegramIntegration {
 
         this.setupListeners();
         this.server.log('[Telegram] Bot initialized and listening');
+
+        // Lock file acquisition and heartbeat
+        this.acquireLock();
+        this.lockInterval = setInterval(() => this.acquireLock(), 5000);
 
         // Initialize session monitoring variables
         this.lastActiveSessionDir = this.getActiveSessionDir();
@@ -536,10 +542,20 @@ export class TelegramIntegration {
         }, 5000);
     }
 
-    public handleLSTrajectory(text: string, isGenerating: boolean, hasActiveDialogs: boolean = false) {
+    public handleLSTrajectory(text: string, isGenerating: boolean, hasActiveDialogs: boolean = false, stepStatusText: string = '') {
         this.checkAndAutoSendBrainFiles().catch(() => {});
 
         if (!this.activeMessageId || !this.activeChatId) return;
+
+        // Edit status message with real-time steps progress and response preview
+        if (isGenerating && stepStatusText && stepStatusText !== this.lastStatusText) {
+            this.lastStatusText = stepStatusText;
+            this.bot.editMessageText(stepStatusText, {
+                chat_id: this.activeChatId,
+                message_id: this.activeMessageId,
+                parse_mode: 'Markdown'
+            }).catch(() => {});
+        }
 
         if (text) {
             // Luôn cập nhật text mới nhất trong memory (không gửi ngay)
@@ -590,6 +606,7 @@ export class TelegramIntegration {
             // IDE báo generation xong → gửi phản hồi cuối cùng (chỉ 1 lần)
             // But NOT when there are active dialogs — AI is waiting for user input, not done
             this.hasStartedGenerating = false;
+            this.lastStatusText = ''; // Clear for next time
 
             if (this.pendingUpdate) {
                 clearTimeout(this.pendingUpdate);
@@ -1246,6 +1263,11 @@ export class TelegramIntegration {
 
     public stop() {
         try {
+            if (this.lockInterval) {
+                clearInterval(this.lockInterval);
+                this.lockInterval = null;
+            }
+            this.releaseLock();
             if (this.autoCheckInterval) {
                 clearInterval(this.autoCheckInterval);
                 this.autoCheckInterval = null;
@@ -1266,6 +1288,31 @@ export class TelegramIntegration {
             this.server.log('[Telegram] Đã ngắt kết nối bot');
         } catch (e) {
             this.server.log(`[Telegram] Error stopping polling: ${e}`);
+        }
+    }
+
+    private acquireLock() {
+        const lockPath = path.join(os.homedir(), '.ag-link', 'bot.lock');
+        const lock = {
+            pid: process.pid,
+            time: Date.now()
+        };
+        try {
+            fs.writeFileSync(lockPath, JSON.stringify(lock), 'utf8');
+        } catch (err) {
+            this.server.log(`[Telegram] Error acquiring lock: ${err}`);
+        }
+    }
+
+    private releaseLock() {
+        const lockPath = path.join(os.homedir(), '.ag-link', 'bot.lock');
+        if (fs.existsSync(lockPath)) {
+            try {
+                const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+                if (lock.pid === process.pid) {
+                    fs.unlinkSync(lockPath);
+                }
+            } catch {}
         }
     }
 }

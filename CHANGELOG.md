@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+### Added
+- Multi-window conflict protection: Implemented a process lockfile (`bot.lock`) and heartbeat system to prevent `409 Conflict` loops when opening multiple IDE windows or debugging concurrently.
+- Real-time step logging: Added detailed logging for new and updated trajectory steps in the extension Output Channel.
+
 ## 1.0.3
 
 ### Changed

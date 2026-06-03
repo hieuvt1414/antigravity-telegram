@@ -88,6 +88,32 @@ async function startBot(context: vscode.ExtensionContext) {
         return;
     }
 
+    // Check lock file to avoid 409 Conflict
+    const path = require('path');
+    const fs = require('fs');
+    const lockPath = path.join(require('os').homedir(), '.ag-link', 'bot.lock');
+    if (fs.existsSync(lockPath)) {
+        try {
+            const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+            const pid = parseInt(lock.pid, 10);
+            const time = parseInt(lock.time, 10);
+
+            const isPidRunning = (p: number): boolean => {
+                try {
+                    process.kill(p, 0);
+                    return true;
+                } catch (e: any) {
+                    return e.code === 'EPERM';
+                }
+            };
+
+            if (Date.now() - time < 15_000 && isPidRunning(pid) && pid !== process.pid) {
+                vscode.window.showWarningMessage(`Telegram Bot đang chạy ở cửa sổ IDE khác (PID: ${pid}). Vui lòng tắt bot ở cửa sổ kia trước.`);
+                return;
+            }
+        } catch {}
+    }
+
     // Create primary send function using VS Code commands (more reliable than CDP DOM injection)
     const primarySendFn = async (message: string): Promise<boolean> => {
         try {

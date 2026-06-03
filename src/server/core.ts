@@ -56,7 +56,12 @@ export class AntigravityCore {
             this.log(`[Core] Token (masked): ...${finalToken.slice(-6)}`);
             this.log(`[Core] ChatId: ${finalChatId} (from ${telegramChatId ? 'settings' : 'env'})`);
             this.log(`[Core] Username: ${finalUsername}`);
-            this.telegramIntegration = new TelegramIntegration(finalToken, finalChatId, finalUsername, this);
+
+            if (this.checkLockConflict()) {
+                this.log(`[Core] ⚠️ Telegram Bot is already running in another window/instance. Skipping initialization to avoid 409 Conflict.`);
+            } else {
+                this.telegramIntegration = new TelegramIntegration(finalToken, finalChatId, finalUsername, this);
+            }
         }
         this.state = {
             pollInterval: null,
@@ -107,6 +112,7 @@ export class AntigravityCore {
 
     private loggedDialogHashes: Set<string> = new Set();
     private lastLoggedCascadeId: string = '';
+    private lastLoggedSteps: string[] = [];
     private pollCount: number = 0;
 
     private async updateSnapshot(): Promise<boolean> {
@@ -114,6 +120,7 @@ export class AntigravityCore {
         let lsGenerating = false;
         let lsText = '';
         let hasActiveDialogs = false;
+        let stepStatusText = '';
 
         const isTracking = this.telegramIntegration?.isTrackingResponse ?? false;
 
@@ -124,6 +131,7 @@ export class AntigravityCore {
                 // Reset logged hashes when cascade changes
                 if (activeCascadeId !== this.lastLoggedCascadeId) {
                     this.loggedDialogHashes.clear();
+                    this.lastLoggedSteps = [];
                     this.lastLoggedCascadeId = activeCascadeId;
                 }
 
@@ -134,6 +142,24 @@ export class AntigravityCore {
                     const trajectoryData = await getCascadeTrajectory(activeCascadeId);
                     if (trajectoryData && trajectoryData.trajectory) {
                         const steps = trajectoryData.trajectory.steps || [];
+
+                        // Log new or updated steps for troubleshooting
+                        for (let i = 0; i < steps.length; i++) {
+                            const step = steps[i];
+                            const sig = `${step.type || 'UNKNOWN'}:${step.status || 'UNKNOWN'}`;
+                            if (i >= this.lastLoggedSteps.length || this.lastLoggedSteps[i] !== sig) {
+                                const cleanType = (step.type || 'UNKNOWN').replace('CORTEX_STEP_TYPE_', '');
+                                const cleanStatus = (step.status || 'UNKNOWN').replace('CORTEX_STEP_STATUS_', '');
+
+                                if (i >= this.lastLoggedSteps.length) {
+                                    this.log(`[Core] 🪜 [Step ${i}] Created: Type=${cleanType} | Status=${cleanStatus}`);
+                                    this.lastLoggedSteps.push(sig);
+                                } else {
+                                    this.log(`[Core] 🪜 [Step ${i}] Updated: Type=${cleanType} | Status=${cleanStatus}`);
+                                    this.lastLoggedSteps[i] = sig;
+                                }
+                            }
+                        }
                         const lastAiStep = [...steps].reverse().find((s: any) =>
                             s.type === 'CORTEX_STEP_TYPE_PLANNER_RESPONSE' ||
                             s.type === 'CORTEX_STEP_TYPE_ASSISTANT_RESPONSE' ||
@@ -246,6 +272,57 @@ export class AntigravityCore {
                                 } catch { /* skip malformed args */ }
                             }
 
+                            // ── Formulate stepStatusText for Telegram real-time progress updates ──
+                            const maxDisplaySteps = 5;
+                            const lastSteps = steps.slice(-maxDisplaySteps);
+                            const progressLines = lastSteps.map((s: any) => {
+                                const actualIndex = steps.indexOf(s);
+                                const cleanType = (s.type || 'UNKNOWN')
+                                    .replace('CORTEX_STEP_TYPE_', '')
+                                    .replace('CORTEX_STEP_STATUS_', '');
+                                const cleanStatus = (s.status || 'UNKNOWN')
+                                    .replace('CORTEX_STEP_STATUS_', '');
+
+                                const emoji = cleanStatus.includes('RUNNING') ? '⏳' : '✅';
+
+                                let detail = '';
+                                if (s.plannerResponse?.toolCalls?.length > 0) {
+                                    const tc = s.plannerResponse.toolCalls[0];
+                                    detail = ` (Tool: ${tc.name})`;
+                                    try {
+                                        const args = JSON.parse(tc.argumentsJson);
+                                        if (tc.name === 'view_file' && args.AbsolutePath) {
+                                            detail = ` (View: \`${path.basename(args.AbsolutePath)}\`)`;
+                                        } else if (tc.name === 'run_command' && args.CommandLine) {
+                                            detail = ` (Run: \`${args.CommandLine.split(' ')[0]}...\`)`;
+                                        } else if (tc.name === 'write_to_file' && args.TargetFile) {
+                                            detail = ` (Create: \`${path.basename(args.TargetFile)}\`)`;
+                                        } else if (tc.name === 'replace_file_content' && args.TargetFile) {
+                                            detail = ` (Modify: \`${path.basename(args.TargetFile)}\`)`;
+                                        } else if (tc.name === 'ask_question') {
+                                            detail = ` (Ask Question)`;
+                                        } else if (tc.name === 'ask_permission') {
+                                            detail = ` (Ask Permission)`;
+                                        }
+                                    } catch {}
+                                }
+
+                                return `${emoji} [Step ${actualIndex}]: ${cleanType} (${cleanStatus})${detail}`;
+                            });
+
+                            stepStatusText = `🤖 *AI đang thực thi...*\n\n`;
+                            if (steps.length > maxDisplaySteps) {
+                                stepStatusText += `_... (đã ẩn ${steps.length - maxDisplaySteps} steps trước)_\n`;
+                            }
+                            stepStatusText += progressLines.join('\n');
+
+                            if (lsText) {
+                                const preview = lsText.length > 150
+                                    ? lsText.substring(0, 150) + '...'
+                                    : lsText;
+                                stepStatusText += `\n\n💬 *Nội dung phản hồi hiện tại:*\n_${preview.replace(/[*_`]/g, '')}_`;
+                            }
+
                             // Log poll status every 5th cycle to reduce noise
                             this.pollCount++;
                             if (this.pollCount % 5 === 0 || !isLsActive) {
@@ -265,7 +342,7 @@ export class AntigravityCore {
         }
 
         if (this.telegramIntegration && isTracking) {
-            this.telegramIntegration.handleLSTrajectory(lsText, lsGenerating, hasActiveDialogs);
+            this.telegramIntegration.handleLSTrajectory(lsText, lsGenerating, hasActiveDialogs, stepStatusText);
         }
 
         return false;
@@ -402,5 +479,32 @@ export class AntigravityCore {
         if (this.telegramIntegration) {
             this.telegramIntegration.stop();
         }
+    }
+
+    private checkLockConflict(): boolean {
+        const lockPath = path.join(os.homedir(), '.ag-link', 'bot.lock');
+        if (fs.existsSync(lockPath)) {
+            try {
+                const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+                const pid = parseInt(lock.pid, 10);
+                const time = parseInt(lock.time, 10);
+
+                const isPidRunning = (p: number): boolean => {
+                    try {
+                        process.kill(p, 0);
+                        return true;
+                    } catch (e: any) {
+                        return e.code === 'EPERM';
+                    }
+                };
+
+                if (Date.now() - time < 15_000 && isPidRunning(pid) && pid !== process.pid) {
+                    return true;
+                }
+            } catch {
+                // Ignore malformed lock
+            }
+        }
+        return false;
     }
 }
