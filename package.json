@@ -35,9 +35,9 @@
         "vscode": "^1.90.0"
     },
     "categories": [
-        "Productivity",
         "Machine Learning",
-        "Chat"
+        "Chat",
+        "Other"
     ],
     "publisher": "TrungHieu1414",
     "repository": {
@@ -106,6 +106,7 @@
         "dev": "node ./esbuild.js --watch",
         "deploy:mac": "npm run bundle && cp out/extension.js ~/.antigravity-ide/extensions/trunghieu1414.antigravity-with-telegram-*-universal/out/extension.js && echo '✅ Deployed! Reload IDE to apply.'",
         "package": "vsce package",
+        "package:all": "node scripts/build-markets.js",
         "deploy": "npm run bundle && xcopy /Y out\\extension.js \"%USERPROFILE%\\.antigravity-ide\\extensions\\TrungHieu1414.antigravity-with-telegram-1.0.0\\out\\\"",
         "test": "mocha -r ts-node/register src/test/isGeneratingTracker.test.ts src/test/telegram.test.ts",
         "test:e2e": "tsc -p ./ && node out/test/runTest.js"
