@@ -1,0 +1,117 @@
+{
+    "name": "antigravity-with-telegram",
+    "displayName": "Antigravity With Telegram",
+    "description": "Telegram bot bridge for Antigravity IDE",
+    "icon": "icon.png",
+    "version": "1.0.0",
+    "mcpName": "io.github.TrungHieu1414/antigravity-with-telegram",
+    "files": [
+        "out/**",
+        "icon.png",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "package.nls*.json"
+    ],
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.90.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "publisher": "TrungHieu1414",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/hieuvt1414/antigravity-with-telegram"
+    },
+    "activationEvents": [
+        "onStartupFinished",
+        "onCommand:antigravity-with-telegram.start"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "antigravity-with-telegram.start",
+                "title": "Start Telegram Bot",
+                "category": "Antigravity With Telegram"
+            },
+            {
+                "command": "antigravity-with-telegram.stop",
+                "title": "Stop Telegram Bot",
+                "category": "Antigravity With Telegram"
+            },
+            {
+                "command": "antigravity-with-telegram.mockQuestion",
+                "title": "Send Mock Question to Telegram",
+                "category": "Antigravity With Telegram"
+            }
+        ],
+        "configuration": {
+            "title": "Antigravity With Telegram",
+            "properties": {
+                "antigravityWithTelegram.autoStart": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Tự động bật Telegram Bot khi mở IDE",
+                    "order": 0
+                },
+                "antigravityWithTelegram.telegramToken": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Token của Telegram Bot (lấy từ @BotFather)",
+                    "order": 1
+                },
+                "antigravityWithTelegram.telegramChatId": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Chat ID được phép tương tác (để trống nếu dùng username)",
+                    "order": 2
+                },
+                "antigravityWithTelegram.telegramAllowedUsername": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Username Telegram (không @) được phép tương tác",
+                    "order": 3
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run typecheck && npm run bundle",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "typecheck": "tsc -p ./ --noEmit",
+        "bundle": "node ./esbuild.js",
+        "dev": "node ./esbuild.js --watch",
+        "deploy:mac": "npm run bundle && cp out/extension.js ~/.antigravity-ide/extensions/TrungHieu1414.antigravity-with-telegram-1.0.0/out/extension.js && echo '✅ Deployed! Reload IDE to apply.'",
+        "package": "vsce package",
+        "deploy": "npm run bundle && xcopy /Y out\\extension.js \"%USERPROFILE%\\.antigravity-ide\\extensions\\TrungHieu1414.antigravity-with-telegram-1.0.0\\out\\\"",
+        "test": "mocha -r ts-node/register src/test/isGeneratingTracker.test.ts src/test/telegram.test.ts",
+        "test:e2e": "tsc -p ./ && node out/test/runTest.js"
+    },
+    "devDependencies": {
+        "@types/chai": "^5.2.3",
+        "@types/cheerio": "^0.22.35",
+        "@types/mocha": "^10.0.10",
+        "@types/node": "^20.12.7",
+        "@types/node-telegram-bot-api": "^0.64.14",
+        "@types/vscode": "^1.90.0",
+        "@types/ws": "^8.5.10",
+        "@vscode/test-electron": "^2.5.2",
+        "chai": "^6.2.2",
+        "esbuild": "^0.20.2",
+        "mocha": "^11.7.5",
+        "playwright": "^1.59.1",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.4.5",
+        "vsce": "^2.15.0"
+    },
+    "dependencies": {
+        "cheerio": "^1.2.0",
+        "dotenv": "^17.4.2",
+        "node-telegram-bot-api": "^0.67.0",
+        "ws": "^8.16.0"
+    }
+}

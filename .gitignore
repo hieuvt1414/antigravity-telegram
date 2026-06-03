@@ -1,0 +1,15 @@
+node_modules/
+out/
+uploads/
+.env
+.token
+.mcpregistry_github_token
+cert.pem
+key.pem
+*.vsix
+*.log
+.DS_Store
+ag-stop-probe.json
+temp_snapshot.html
+.vscode-test/
+
