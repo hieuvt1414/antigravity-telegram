@@ -206,8 +206,6 @@ export class AntigravityCore {
                                     if (tc.name === 'ask_question' && this.telegramIntegration) {
                                         hasActiveDialogs = true;
                                         const questions = args.questions || [];
-                                        // Only send the FIRST question — IDE shows them sequentially (1 of N)
-                                        // After user answers, the step changes and next question appears
                                         if (questions.length > 0) {
                                             const q = questions[0];
                                             const hash = `ls_ask_q:${activeCascadeId.substring(0,8)}:${lastAiStepIndex}:q0`;
@@ -271,68 +269,66 @@ export class AntigravityCore {
                                     }
                                 } catch { /* skip malformed args */ }
                             }
+                        }
 
-                            // ── Formulate stepStatusText for Telegram real-time progress updates ──
-                            const maxDisplaySteps = 5;
-                            const lastSteps = steps.slice(-maxDisplaySteps);
-                            const progressLines = lastSteps.map((s: any) => {
-                                const actualIndex = steps.indexOf(s);
-                                const cleanType = (s.type || 'UNKNOWN')
-                                    .replace('CORTEX_STEP_TYPE_', '')
-                                    .replace('CORTEX_STEP_STATUS_', '');
-                                const cleanStatus = (s.status || 'UNKNOWN')
-                                    .replace('CORTEX_STEP_STATUS_', '');
+                        // ── Formulate stepStatusText for Telegram real-time progress updates ──
+                        const maxDisplaySteps = 5;
+                        const lastSteps = steps.slice(-maxDisplaySteps);
+                        const progressLines = lastSteps.map((s: any) => {
+                            const actualIndex = steps.indexOf(s);
+                            const cleanType = (s.type || 'UNKNOWN')
+                                .replace('CORTEX_STEP_TYPE_', '')
+                                .replace('CORTEX_STEP_STATUS_', '');
+                            const cleanStatus = (s.status || 'UNKNOWN')
+                                .replace('CORTEX_STEP_STATUS_', '');
 
-                                const emoji = cleanStatus.includes('RUNNING') ? '⏳' : '✅';
+                            const emoji = cleanStatus.includes('RUNNING') ? '⏳' : '✅';
 
-                                let detail = '';
-                                if (s.plannerResponse?.toolCalls?.length > 0) {
-                                    const tc = s.plannerResponse.toolCalls[0];
-                                    detail = ` (Tool: ${tc.name})`;
-                                    try {
-                                        const args = JSON.parse(tc.argumentsJson);
-                                        if (tc.name === 'view_file' && args.AbsolutePath) {
-                                            detail = ` (View: \`${path.basename(args.AbsolutePath)}\`)`;
-                                        } else if (tc.name === 'run_command' && args.CommandLine) {
-                                            detail = ` (Run: \`${args.CommandLine.split(' ')[0]}...\`)`;
-                                        } else if (tc.name === 'write_to_file' && args.TargetFile) {
-                                            detail = ` (Create: \`${path.basename(args.TargetFile)}\`)`;
-                                        } else if (tc.name === 'replace_file_content' && args.TargetFile) {
-                                            detail = ` (Modify: \`${path.basename(args.TargetFile)}\`)`;
-                                        } else if (tc.name === 'ask_question') {
-                                            detail = ` (Ask Question)`;
-                                        } else if (tc.name === 'ask_permission') {
-                                            detail = ` (Ask Permission)`;
-                                        }
-                                    } catch {}
-                                }
-
-                                return `${emoji} [Step ${actualIndex}]: ${cleanType} (${cleanStatus})${detail}`;
-                            });
-
-                            stepStatusText = `🤖 *AI đang thực thi...*\n\n`;
-                            if (steps.length > maxDisplaySteps) {
-                                stepStatusText += `_... (đã ẩn ${steps.length - maxDisplaySteps} steps trước)_\n`;
-                            }
-                            stepStatusText += progressLines.join('\n');
-
-                            if (lsText) {
-                                const preview = lsText.length > 150
-                                    ? lsText.substring(0, 150) + '...'
-                                    : lsText;
-                                stepStatusText += `\n\n💬 *Nội dung phản hồi hiện tại:*\n_${preview.replace(/[*_`]/g, '')}_`;
+                            let detail = '';
+                            if (s.plannerResponse?.toolCalls?.length > 0) {
+                                const tc = s.plannerResponse.toolCalls[0];
+                                detail = ` (Tool: ${tc.name})`;
+                                try {
+                                    const args = JSON.parse(tc.argumentsJson);
+                                    if (tc.name === 'view_file' && args.AbsolutePath) {
+                                        detail = ` (View: \`${path.basename(args.AbsolutePath)}\`)`;
+                                    } else if (tc.name === 'run_command' && args.CommandLine) {
+                                        detail = ` (Run: \`${args.CommandLine.split(' ')[0]}...\`)`;
+                                    } else if (tc.name === 'write_to_file' && args.TargetFile) {
+                                        detail = ` (Create: \`${path.basename(args.TargetFile)}\`)`;
+                                    } else if (tc.name === 'replace_file_content' && args.TargetFile) {
+                                        detail = ` (Modify: \`${path.basename(args.TargetFile)}\`)`;
+                                    } else if (tc.name === 'ask_question') {
+                                        detail = ` (Ask Question)`;
+                                    } else if (tc.name === 'ask_permission') {
+                                        detail = ` (Ask Permission)`;
+                                    }
+                                } catch {}
                             }
 
-                            // Log poll status every 5th cycle to reduce noise
-                            this.pollCount++;
-                            if (this.pollCount % 5 === 0 || !isLsActive) {
-                                this.log(`[Core] 📨 LS Poll - Cascade: ${activeCascadeId.substring(0, 8)} | Active: ${isLsActive} | Len: ${lsText.length} | Dialogs: ${hasActiveDialogs} | "${lsText.substring(0, 60).replace(/\n/g, ' ')}..."`);
-                            }
-                        } else {
-                            if (this.pollCount % 5 === 0) {
-                                this.log(`[Core] ⏳ LS Poll - Cascade: ${activeCascadeId.substring(0, 8)} | Waiting for AI response... (${steps.length} steps)`);
-                            }
-                            this.pollCount++;
+                            // Using safe formatting (no square brackets) to avoid Telegram Markdown parsing errors
+                            return `${emoji} Step ${actualIndex}: ${cleanType} (${cleanStatus})${detail}`;
+                        });
+
+                        stepStatusText = `🤖 *AI đang thực thi...*\n\n`;
+                        if (steps.length > maxDisplaySteps) {
+                            stepStatusText += `_... (đã ẩn ${steps.length - maxDisplaySteps} steps trước)_\n`;
+                        }
+                        stepStatusText += progressLines.join('\n');
+
+                        if (lsText) {
+                            const preview = lsText.length > 150
+                                ? lsText.substring(0, 150) + '...'
+                                : lsText;
+                            // Escape reserved Telegram Markdown characters in the preview
+                            const safePreview = preview.replace(/[*_`\[\]()]/g, '');
+                            stepStatusText += `\n\n💬 *Nội dung phản hồi hiện tại:*\n_${safePreview}_`;
+                        }
+
+                        // Log poll status every 5th cycle to reduce noise
+                        this.pollCount++;
+                        if (this.pollCount % 5 === 0 || !isLsActive) {
+                            this.log(`[Core] 📨 LS Poll - Cascade: ${activeCascadeId.substring(0, 8)} | Active: ${isLsActive} | Len: ${lsText.length} | Dialogs: ${hasActiveDialogs} | "${lsText.substring(0, 60).replace(/\n/g, ' ')}..."`);
                         }
                     }
                 }
