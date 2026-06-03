@@ -82,8 +82,9 @@ async function startBot(context: vscode.ExtensionContext) {
         outputChannel.appendLine(`[Commands] Failed to query registered commands: ${err}`);
     }
 
-    if (!telegramToken && !process.env.TELEGRAM_TOKEN) {
-        vscode.window.showErrorMessage("Vui lòng cấu hình Telegram Token trong Settings (antigravityWithTelegram.telegramToken) hoặc qua .env.");
+    const finalToken = (process.env.TELEGRAM_TOKEN || telegramToken || '').trim();
+    if (!finalToken || finalToken === 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
+        vscode.window.showErrorMessage("Vui lòng cấu hình Telegram Token thực tế trong Settings (antigravityWithTelegram.telegramToken) hoặc qua file .env.");
         return;
     }
 

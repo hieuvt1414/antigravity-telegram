@@ -14,3 +14,5 @@ ag-generating-debug.json
 ag-state.json
 ag-stop-probe.json
 .snapshot-live.json
+.env
+.token

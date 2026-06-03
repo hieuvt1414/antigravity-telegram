@@ -48,8 +48,8 @@ export class AntigravityCore {
         else if (fs.existsSync(rootEnv)) dotenv.config({ path: rootEnv });
 
         // Token: ưu tiên .env trước, VS Code settings là fallback
-        const finalToken = process.env.TELEGRAM_TOKEN || telegramToken;
-        if (finalToken) {
+        const finalToken = (process.env.TELEGRAM_TOKEN || telegramToken || '').trim();
+        if (finalToken && finalToken !== 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
             const finalChatId = telegramChatId ?? (process.env.CHAT_ID ? parseInt(process.env.CHAT_ID, 10) : null);
             const finalUsername = telegramAllowedUsername || process.env.ALLOWED_USERNAME || null;
             this.log(`[Core] Token source: ${process.env.TELEGRAM_TOKEN ? '.env' : 'VS Code settings'}`);

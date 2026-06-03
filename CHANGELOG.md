@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.3
+
+### Changed
+- Brand new official extension icon: Merged the official Antigravity IDE app icon with the Telegram 3D logo via a data swap bridge icon in the center.
+
+## 1.0.2
+
+### Fixed
+- Fixed packaging: Excluded `.env` and `.token` files from the bundle using `.vscodeignore` to prevent security scanner blocks on publication.
+
+## 1.0.1
+
+### Fixed
+- Fixed token validation to check and reject the default `"YOUR_TELEGRAM_BOT_TOKEN_HERE"` placeholder in workspace settings.
+- Fixed target extension path in `deploy:mac` script.
+
 ## 1.0.0
 
 Initial release of **Antigravity Telegram** (re-written from the ground up).
